@@ -8,17 +8,39 @@ import { useToast } from "@/hooks/use-toast";
 import { ApiKeyForm } from "./ApiKeyForm";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Session } from "@supabase/supabase-js";
 
 export const AIAssistant = () => {
   const [input, setInput] = useState("");
   const { thinking, setThinking } = useAIStore();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [session, setSession] = useState<Session | null>(null);
+
+  // Check for authentication
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Fetch tasks
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['tasks'],
     queryFn: async () => {
+      if (!session?.user) {
+        console.log("No authenticated user");
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
@@ -29,19 +51,30 @@ export const AIAssistant = () => {
         throw error;
       }
       return data || [];
-    }
+    },
+    enabled: !!session?.user // Only fetch if user is authenticated
   });
 
   // Add task mutation
   const addTaskMutation = useMutation({
     mutationFn: async (description: string) => {
+      if (!session?.user) {
+        throw new Error("User not authenticated");
+      }
+
       const { data, error } = await supabase
         .from('tasks')
-        .insert([{ description }])
+        .insert([{ 
+          description,
+          user_id: session.user.id // Set the user_id when inserting
+        }])
         .select()
         .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
       return data;
     },
     onSuccess: () => {
@@ -51,11 +84,11 @@ export const AIAssistant = () => {
         description: "Your request is being processed",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Error adding task:', error);
       toast({
         title: "Error",
-        description: "Failed to add task",
+        description: error.message || "Failed to add task",
         variant: "destructive",
       });
     }
@@ -64,6 +97,15 @@ export const AIAssistant = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+    
+    if (!session?.user) {
+      toast({
+        title: "Error",
+        description: "Please sign in to add tasks",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       setThinking(true);
@@ -75,6 +117,17 @@ export const AIAssistant = () => {
       setThinking(false);
     }
   };
+
+  // If not authenticated, show message
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-secondary to-white p-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <h1 className="text-2xl font-bold text-primary">Please sign in to use the AI Assistant</h1>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-white p-6">
