@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Loader2, Send, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { ApiKeyForm } from "./ApiKeyForm";
 
 export const AIAssistant = () => {
   const [input, setInput] = useState("");
@@ -45,6 +46,8 @@ export const AIAssistant = () => {
           </div>
           <p className="text-gray-600">Your autonomous AI agent for task execution</p>
         </header>
+
+        <ApiKeyForm />
 
         <Card className="p-6 bg-white shadow-lg">
           <form onSubmit={handleSubmit} className="flex space-x-2">
