@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAIStore } from "../store/useAIStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,11 +6,60 @@ import { Card } from "@/components/ui/card";
 import { Loader2, Send, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeyForm } from "./ApiKeyForm";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export const AIAssistant = () => {
   const [input, setInput] = useState("");
-  const { tasks, thinking, addTask, setThinking } = useAIStore();
+  const { thinking, setThinking } = useAIStore();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch tasks
+  const { data: tasks = [], isLoading } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching tasks:', error);
+        throw error;
+      }
+      return data || [];
+    }
+  });
+
+  // Add task mutation
+  const addTaskMutation = useMutation({
+    mutationFn: async (description: string) => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([{ description }])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast({
+        title: "Task added",
+        description: "Your request is being processed",
+      });
+    },
+    onError: (error) => {
+      console.error('Error adding task:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add task",
+        variant: "destructive",
+      });
+    }
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,19 +67,10 @@ export const AIAssistant = () => {
 
     try {
       setThinking(true);
-      addTask(input);
-      toast({
-        title: "Task added",
-        description: "Your request is being processed",
-      });
+      await addTaskMutation.mutateAsync(input);
       setInput("");
     } catch (error) {
       console.error("Error processing request:", error);
-      toast({
-        title: "Error",
-        description: "Failed to process your request",
-        variant: "destructive",
-      });
     } finally {
       setThinking(false);
     }
@@ -69,7 +109,13 @@ export const AIAssistant = () => {
         </Card>
 
         <div className="space-y-4">
-          {tasks.map((task) => (
+          {isLoading ? (
+            <Card className="p-4">
+              <div className="flex items-center justify-center">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+            </Card>
+          ) : tasks.map((task) => (
             <Card
               key={task.id}
               className={`p-4 transition-all duration-200 ${
@@ -97,7 +143,7 @@ export const AIAssistant = () => {
                   <p className="text-sm text-gray-600">{task.result}</p>
                 )}
                 <p className="text-xs text-gray-400">
-                  Created: {task.createdAt.toLocaleString()}
+                  Created: {new Date(task.created_at).toLocaleString()}
                 </p>
               </div>
             </Card>
